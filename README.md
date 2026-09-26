@@ -1,83 +1,72 @@
-<<<<<<< HEAD
 # ProjectMS
 
-A full-stack **Project Management System**. Spring Boot backend + React/Vite frontend, protected by JWT authentication.
+A full-stack **Project Management System** built on the **PERN stack** — PostgreSQL + Express + React + Node — protected by JWT authentication.
 
 ---
 
 ## 1. Big Picture
 
-**Backend stack:** Spring Boot 3.2 · Java 17 · Maven · PostgreSQL · JPA/Hibernate · Spring Security · JJWT
+**Backend stack:** Node.js 18+ · Express 4 · PostgreSQL (`pg`) · `jsonwebtoken` · `bcryptjs` · `cors` · `dotenv`
 
-The backend follows a classic **layered architecture**:
+**Frontend stack:** React 18 · Vite · React Router · Axios · Tailwind CSS
+
+The backend follows a simple, direct architecture with no ORM — plain SQL through a shared `pg` connection pool:
 
 ```
-HTTP request → Controller → Service (Impl) → Repository → PostgreSQL
-                          ↕  DTO  ↕
-              JWT filter → Security (stateless)
+HTTP request → Route → SQL (pg Pool) → PostgreSQL
+                  ↕
+        JWT middleware (stateless, everything except /api/auth/** needs a Bearer token)
 ```
 
-Data flow: JSON arrives as a **DTO** → service converts it into an **Entity** → repository persists it → service converts back into a **DTO** → JSON is returned.
+Data flow: JSON arrives at a **route** → validated and normalized → persisted with parameterized SQL → mapped to the API's response shape → JSON is returned.
 
-**Rule of the layering:** Entities never leave the service layer, and controllers never see a repository or an entity — only DTOs and service interfaces.
+**Conventions:** routes are thin (HTTP + validation only, no business logic), dates are exchanged as `YYYY-MM-DD` strings, and all errors flow to one centralized error-handling middleware.
 
 ---
 
 ## 2. Folder / Module Breakdown
 
 ```
-backend/
-├── pom.xml                          Maven build, dependencies, Java 17
-├── src/main/java/com/projectms/
-│   ├── ProjectMsApplication.java    Entry point (@SpringBootApplication)
-│   ├── config/
-│   │   ├── SecurityConfig.java      HTTP security, CORS, password encoder
-│   │   └── DataSeeder.java          Seeds default admin on startup
-│   ├── controller/                  REST endpoints (thin, no business logic)
-│   │   ├── AuthController.java
-│   │   ├── ClientController.java
-│   │   ├── ProjectController.java
-│   │   ├── TaskController.java
-│   │   ├── TeamMemberController.java
-│   │   ├── ProjectAssignmentController.java
-│   │   ├── ProgressReportController.java
-│   │   └── DashboardController.java
-│   ├── dto/                         Request/response payloads (with validation)
-│   │   ├── LoginRequest.java / LoginResponse.java
-│   │   ├── ClientDTO.java / ProjectDTO.java / TaskDTO.java
-│   │   ├── TeamMemberDTO.java / ProjectAssignmentDTO.java
-│   │   ├── ProgressReportDTO.java / DashboardDTO.java
-│   ├── entity/                      JPA entities mapped to database tables
-│   │   ├── BaseEntity.java          Shared id / createdAt / updatedAt
-│   │   ├── Admin.java  Client.java  Project.java
-│   │   ├── Task.java  TeamMember.java
-│   │   ├── ProjectAssignment.java  ProgressReport.java
-│   ├── repository/                  Spring Data JPA interfaces (auto-generated SQL)
-│   ├── service/                     Interfaces (contracts)
-│   ├── service/impl/                Implementations (business logic)
-│   ├── security/                    JWT token + filter + user loading
-│   │   ├── JwtTokenProvider.java
-│   │   ├── JwtAuthenticationFilter.java
-│   │   └── CustomUserDetailsService.java
-│   └── exception/                   Global error handling
-│       ├── ResourceNotFoundException.java
-│       └── GlobalExceptionHandler.java
-└── src/main/resources/
-    └── application.properties       Port, DB, JPA, JWT config
+ProjectMS/
+├── backend/
+│   ├── package.json               Express app, dependencies, npm scripts
+│   ├── .env / .env.example        Port, DB credentials, JWT secret, CORS origin
+│   └── src/
+│       ├── server.js              Entry point: CORS, JSON parsing, route mounting, listen on 8080
+│       ├── config/db.js           pg Pool, schema init (CREATE TABLE IF NOT EXISTS), admin seeder
+│       ├── middleware/
+│       │   ├── auth.js            JWT Bearer gate (public: /api/auth/**)
+│       │   └── errorHandler.js    Centralized 404 / 500 {error} mapping
+│       ├── utils/helpers.js       ""→null coercion, date/ID normalization, validators
+│       └── routes/                REST endpoints (thin, no business logic)
+│           ├── auth.js            Login
+│           ├── clients.js         Client CRUD + search
+│           ├── projects.js        Project CRUD + search (enriched DTO)
+│           ├── teamMembers.js     Team member CRUD
+│           ├── tasks.js           Task CRUD + search + by-project
+│           ├── assignments.js     Assign / unassign members
+│           ├── progressReports.js Report create + listing (reportDate DESC)
+│           └── dashboard.js       Aggregated stats
+└── frontend/
+    ├── package.json               React app, dependencies, Vite scripts
+    ├── vite.config.js             Dev server on 5173, proxies /api → http://localhost:8080
+    └── src/
+        ├── services/api.js        Axios instance (baseURL /api, token + 401 interceptors)
+        ├── context/AuthContext.jsx  Token/adminName state backed by localStorage
+        ├── App.jsx                Router, private-route gating, layout
+        └── pages/                 Login, Dashboard, Projects, Clients, TeamMembers,
+                                   Tasks, Assignments, ProgressReports, Reminders
 ```
 
-### What each module is responsible for
+### What each backend module is responsible for
 
-| Folder | Responsibility |
+| Module | Responsibility |
 |---|---|
-| `controller/` | Map HTTP routes → delegate to a service. Zero business logic ("thin controllers"). |
-| `dto/` | Plain-Java payload classes with Bean Validation annotations. Define the API contract. |
-| `entity/` | JPA entities. Map Java objects to tables; define relationships. |
-| `repository/` | Spring Data interfaces. Method names generate SQL automatically. |
-| `service/` + `service/impl/` | Interface (contract) + implementation (all business logic). |
-| `security/` | JWT creation/validation, per-request auth filter, admin lookup for login. |
-| `config/` | Security filter chain, CORS, password hashing, startup seeding. |
-| `exception/` | Centralized conversion of exceptions → HTTP responses. |
+| `routes/` | Map HTTP routes → validate input → run SQL → return JSON. Zero business logic beyond that ("thin routes"). |
+| `config/db.js` | Owns the connection pool, creates missing tables on boot, seeds the default admin. |
+| `middleware/auth.js` | Verifies `Authorization: Bearer <JWT>` on every request except login; loads the admin. |
+| `middleware/errorHandler.js` | Converts thrown `{status, message}` errors and DB failures into `{error}` JSON responses. |
+| `utils/helpers.js` | Normalizes frontend quirks (`""` → `NULL`, numeric strings → numbers, pg `Date` → `YYYY-MM-DD`) and shared validators. |
 
 ---
 
@@ -90,98 +79,74 @@ Client 1 ──── * Project 1 ──── * Task  (assigned to TeamMember)
                 │  │  │
                 │  │  └──── * ProgressReport   (date, %, remarks)
                 │  └─────── * ProjectAssignment (Project ↔ TeamMember)
-                └────────── (client_id FK)
+                └────────── (client_id FK, nullable)
 ```
 
-All entities extend `BaseEntity`, which provides the auto-generated primary key and auto-managed `createdAt` / `updatedAt` timestamps.
+Tables: `admins`, `clients`, `projects`, `team_members`, `tasks`, `project_assignments`, `progress_reports` — each with auto-increment `id` plus auto-managed `created_at` / `updated_at` timestamps.
 
 ---
 
-## 4. Key Files Explained (line-by-line highlights)
+## 4. Key Files Explained
 
-### `application.properties`
-- `server.port=8080`
-- PostgreSQL connection to `projectms_db`, user `postgres`
-- `spring.jpa.hibernate.ddl-auto=update` — Hibernate creates/alters tables from entities automatically
-- JWT secret key + 24-hour expiration (`86400000` ms)
-- ⚠️ Secrets are hardcoded. Move them to environment variables for anything beyond local dev.
+### `backend/.env`
+- `PORT=8080`
+- PostgreSQL connection (`DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD` → `projectms_db`)
+- `JWT_SECRET` + 24-hour expiration (`JWT_EXPIRATION_MS=86400000`)
+- `CORS_ORIGIN=http://localhost:5173`
+- ⚠️ Change `JWT_SECRET` and `DB_PASSWORD` for anything beyond local dev.
 
-### `SecurityConfig.java`
-- **Stateless** sessions: every request must carry a JWT (`SessionCreationPolicy.STATELESS`).
-- `/api/auth/**` (login) is public; every other `/api/**` request requires authentication.
-- The `JwtAuthenticationFilter` is inserted *before* Spring's username/password filter (chain of responsibility).
-- Beans provided: `BCryptPasswordEncoder`, `AuthenticationManager`, and CORS allowing only `http://localhost:5173` (the Vite dev server).
+### `backend/src/server.js`
+- **Stateless** auth: every request must carry a JWT except `POST /api/auth/login`.
+- CORS allows only `http://localhost:5173` (the Vite dev server) with credentials.
+- Mounts all routers under `/api/...`, then a 404 fallback and the error middleware.
 
-### `AuthServiceImpl.login()` — the login pipeline
-1. `authenticationManager.authenticate(...)` verifies credentials (BCrypt check via `CustomUserDetailsService`).
-2. Re-fetches the `Admin` row to get the display name.
-3. `JwtTokenProvider.generateToken(...)` issues a signed JWT.
-4. Returns `LoginResponse(token, "Login successful as <name>")`.
+### `backend/src/routes/auth.js` — the login pipeline
+1. Validates `username` / `password` are non-blank (else `400`).
+2. Looks up the admin and checks the password with `bcrypt.compare` (else `401 Invalid username or password`).
+3. Signs a JWT (`sub = username`, 24h expiry).
+4. Returns `{token, message: "Login successful as <fullName>"}`.
 
-### `JwtTokenProvider.java`
-- Builds an HMAC key from the secret.
-- `generateToken` — signs a token (username as subject, issued-at + expiry).
-- `validateToken` / `getUsernameFromToken` — parse and verify signature.
+### `backend/src/middleware/auth.js`
+- Reads `Authorization: Bearer <token>`, verifies it, reloads the admin, attaches it as `req.user`.
+- Missing/invalid tokens → `401 {error}` (the frontend's interceptor redirects to `/login` on 401).
 
-### `JwtAuthenticationFilter.java`
-- Runs once per request (`OncePerRequestFilter`).
-- Reads `Authorization: Bearer <token>`, validates it, loads the user, and sets the `Authentication` in the `SecurityContextHolder` → the request is then treated as authenticated.
+### `backend/src/routes/clients.js` (the canonical CRUD route)
+- `GET /search?keyword=` is registered **before** `GET /:id` so Express never mistakes "search" for an id (same for every `by-project` route).
+- Search uses `ILIKE %keyword%` (case-insensitive).
+- `DELETE` returns `204` empty; everything else returns `200` JSON.
 
-### `ClientController.java` (the canonical CRUD controller)
-- `@RestController` + `@RequestMapping("/api/clients")`.
-- Uses `@PathVariable` (id), `@RequestBody` (payload), `@RequestParam` (search), and always returns `ResponseEntity<...>` with the right HTTP status.
-
-### `ClientServiceImpl.java`
-- `getAllClients` → `findAll()` then maps each entity → DTO via private `toDTO()`.
-- `getClientById` → `orElseThrow(ResourceNotFoundException)` (safe lookup).
-- `create` / `update` → copy DTO fields onto entity, `save`, return DTO.
-- `delete` → existence check first, then delete.
-- `search` → derived query `findByClientNameContainingIgnoreCase`.
-
-### `ProjectServiceImpl.java`
-- Same pattern plus relations: resolves `clientId` → `Client` entity, and `toDTO()` computes:
-  - `completionPercentage` = completed tasks / total tasks × 100 (JPQL count queries)
+### `backend/src/routes/projects.js`
+- Same CRUD pattern plus enrichment in `toEnrichedDTO()`:
+  - `completionPercentage` = completed tasks / total tasks × 100
   - total / completed task counts
-  - list of assigned member names (from the assignment repository)
+  - list of assigned member names
+- `status` defaults to `"Planning"` when omitted on create; an explicit blank is rejected.
+- A null/absent `clientId` on update keeps the existing link.
+- Deleting a project deletes its tasks, assignments and reports.
 
-### `DashboardServiceImpl.java`
-- Aggregate counts: `count()`, `countByStatus("Completed")`, `countByStatus("In Progress")`.
-- `overdueTasks` = due date before today and not completed.
+### `backend/src/routes/dashboard.js`
+- Aggregate counts, `overdueTasks` = due date before today and not completed.
 - Overall completion % = completed projects / total projects.
 
-### `BaseEntity.java`
-- `@MappedSuperclass` → not a table itself; its fields are inherited by every table.
-- `@Id @GeneratedValue(strategy = IDENTITY)` → auto-increment primary key.
-- `@PrePersist` / `@PreUpdate` callbacks set `createdAt` / `updatedAt` automatically.
+### `backend/src/middleware/errorHandler.js`
+- Thrown 404s → `404 {error}`; duplicate unique values and anything else → `500 {error}`.
+- Validation failures are returned directly from the routes as `400 {field: message}`.
 
-### `Project.java`
-- Relationship mapping: `@ManyToOne` → Client (lazy), `@OneToMany` → Tasks/Assignments/Reports with `cascade = ALL` (deleting a project deletes its children) and `FetchType.LAZY`.
-
-### `GlobalExceptionHandler.java`
-- `@RestControllerAdvice` intercepts exceptions from any layer:
-  - `ResourceNotFoundException` → `404`
-  - `BadCredentialsException` → `401` "Invalid username or password"
-  - `MethodArgumentNotValidException` → `400` with per-field validation errors
-  - any other `Exception` → `500`
+### `frontend/src/services/api.js`
+- Axios `baseURL: '/api'` (proxied to the backend in dev).
+- Request interceptor attaches the stored JWT; response interceptor clears the session and redirects to `/login` on `401`.
 
 ---
 
-## 5. Design Principles per Module
+## 5. Design Principles
 
-| Module | Principle |
+| Area | Principle |
 |---|---|
-| **Controller** | **Single Responsibility** — only HTTP mapping, no business logic. **Facade** — one endpoint wraps a service call. |
-| **DTO** | **Encapsulation / Separation of Concerns** — entities never leak to the API; prevents exposing DB internals and circular lazy-loading serialization. |
-| **Service** | **Interface Segregation + Dependency Inversion** — controllers depend on interfaces, not concrete classes. **Single Responsibility** — all business logic lives here. |
-| **Repository** | **Repository / DAO pattern** — Spring Data generates queries from method names; an abstraction over persistence. |
-| **Entity** | **Inheritance** (`BaseEntity` `@MappedSuperclass` → DRY for id/timestamps) + **Composition** (entities *have-a* other entities via JPA relations). |
-| **Security** | **Chain of Responsibility** (filter chain) · **Stateless JWT auth** · **Single Responsibility** (token logic / filter / user-loading are separate classes). |
-| **Exception** | **DRY + centralized error handling** — layers throw, one `@RestControllerAdvice` maps exceptions to HTTP. |
-| **Config** | **Inversion of Control / Dependency Injection** — constructor injection everywhere; Spring provides the beans. |
-
-### Cross-cutting
-- **Layered architecture / Dependency Rule** — each layer talks only to the layer below it, and only through interfaces.
-- Note: inheritance is used (mainly `BaseEntity`), but the architecture leans most heavily on **interfaces, encapsulation, and composition** — plus Spring framework conventions.
+| **Routes** | **Single Responsibility** — only HTTP mapping, validation and SQL. |
+| **Response mapping** | DB internals never leak: snake_case columns are mapped to the camelCase API contract; related names/counts are computed per resource. |
+| **Middleware** | **Separation of Concerns** — auth, error handling and JSON parsing are each one focused unit. |
+| **DB access** | One shared pool (`config/db.js`); parameterized queries everywhere — no string-interpolated SQL. |
+| **Frontend quirks** | Handled in one place (`utils/helpers.js`): empty-string dates/numbers/FKs become `NULL`, numeric strings become numbers. |
 
 ---
 
@@ -203,7 +168,7 @@ All entities extend `BaseEntity`, which provides the auto-generated primary key 
 | GET | `/api/assignments/by-project/{projectId}` | Assignments of a project |
 | POST/DELETE | `/api/assignments` | Assign / unassign a member |
 | GET | `/api/progress-reports` | All reports |
-| GET | `/api/progress-reports/by-project/{projectId}` | Reports of a project |
+| GET | `/api/progress-reports/by-project/{projectId}` | Reports of a project (newest first) |
 | POST | `/api/progress-reports` | Create a report |
 
 ---
@@ -211,17 +176,18 @@ All entities extend `BaseEntity`, which provides the auto-generated primary key 
 ## 7. Running the Project
 
 ### Prerequisites
-- Java 17+
-- Maven
-- PostgreSQL running on `localhost:5432` with a database named `projectms_db` (user/password in `application.properties`)
+- Node.js 18+
+- PostgreSQL running on `localhost:5432` (create a database named `projectms_db`, set credentials in `backend/.env`)
 
 ### Backend
 ```bash
 cd backend
-mvn spring-boot:run
+cp .env.example .env   # then set DB_PASSWORD (and JWT_SECRET for non-local use)
+npm install
+npm start              # or: npm run dev (watch mode)
 ```
 
-A default admin is seeded automatically on first start:
+Missing tables are created automatically on boot, and a default admin is seeded on first start:
 - username: `admin`
 - password: `admin123`
 
@@ -232,22 +198,17 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` (CORS is pre-configured for this origin).
+Open `http://localhost:5173` (CORS is pre-configured for this origin; the dev server proxies `/api` to the backend).
 
 ---
 
 ## 8. Known Observations / Where to Cook Bigger
 
-These are honest gaps worth addressing as the project grows:
+Honest gaps worth addressing as the project grows:
 
-- **N+1 queries** — `ProjectServiceImpl.toDTO()` runs 3+ extra queries per project inside list loops. Fine for a demo, slow at scale. Fix with `JOIN FETCH` or projections.
-- **No `@Transactional`** — multi-repository operations are not atomic.
-- **No roles/authorities** — only one `Admin` role; every authenticated user can do everything. No per-entity ownership.
-- **Dead repository methods** — `ProjectAssignmentRepository.existsByProjectIdAndTeamMemberId` / `deleteByProjectIdAndTeamMemberId` are unused, and there is no duplicate-assignment guard.
+- **N+1 queries** — project enrichment runs extra queries per project inside list loops. Fine for a demo, slow at scale. Fix with joins/aggregates in a single query.
+- **No transactions** — multi-statement deletes are not atomic.
+- **No roles/authorities** — only one `Admin` role; every authenticated user can do everything.
+- **No duplicate-assignment guard** — the same member can be assigned to the same project twice.
 - **POST returns `200` instead of `201 Created`** — minor REST etiquette fix.
-- **Hardcoded secrets** — JWT secret + DB credentials should move to environment variables / Spring profiles.
-- **Frontend** has no tests; backend has no test classes yet (Spring Boot Test starter is already in `pom.xml`).
-=======
-# Project-Management-System
-This its for managing the projects ,most companies accept alot of projects and then they fail to manage them as a result some of them get delayed and it can led them to loose trust so to increase trust and manage their product to make sure they deliver ontime and assign task to members and work on team so that they can deliver things on time,good
->>>>>>> 05d494ad903e64d8dad7e55c5edef5a4e2c24813
+- **Frontend** has no tests; backend has no test suite yet.
