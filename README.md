@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # ProjectMS
 
 A full-stack **Project Management System**. Spring Boot backend + React/Vite frontend, protected by JWT authentication.
@@ -246,3 +247,7 @@ These are honest gaps worth addressing as the project grows:
 - **POST returns `200` instead of `201 Created`** — minor REST etiquette fix.
 - **Hardcoded secrets** — JWT secret + DB credentials should move to environment variables / Spring profiles.
 - **Frontend** has no tests; backend has no test classes yet (Spring Boot Test starter is already in `pom.xml`).
+=======
+# Project-Management-System
+This its for managing the projects ,most companies accept alot of projects and then they fail to manage them as a result some of them get delayed and it can led them to loose trust so to increase trust and manage their product to make sure they deliver ontime and assign task to members and work on team so that they can deliver things on time,good
+>>>>>>> 05d494ad903e64d8dad7e55c5edef5a4e2c24813
